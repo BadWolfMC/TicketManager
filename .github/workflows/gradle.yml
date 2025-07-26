@@ -24,11 +24,11 @@ jobs:
     - name: Set up Gradle
       uses: gradle/actions/setup-gradle@v4
 
-    - name: Build TicketManager Standalone
-      run: cd Standalone && gradle build
+    - name: Build Paper Plugin Only
+      run: cd Standalone/Paper && gradle build
 
-    - name: Upload Standalone Plugin Jar
+    - name: Upload Paper Plugin Jar
       uses: actions/upload-artifact@v4
       with:
-        name: ticketmanager-standalone
-        path: Standalone/build/libs/*.jar
+        name: ticketmanager-paper
+        path: Standalone/Paper/build/libs/*.jar
