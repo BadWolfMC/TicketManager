@@ -1,10 +1,9 @@
 package com.github.hoshikurama.ticketmanager.paper
 
+import com.github.hoshikurama.ticketmanager.api.impl.TicketManager
 import com.github.hoshikurama.ticketmanager.common.bukkitMetricsKey
+import com.github.hoshikurama.ticketmanager.paper.impls.ProxyMessageSharingExtension
 import com.github.hoshikurama.ticketmanager.paper.impls.TMPluginImpl
-import com.github.hoshikurama.ticketmanager.paper.impls.proxy.NotificationSharingChannelImpl
-import com.github.hoshikurama.ticketmanager.paper.impls.proxy.PBEVersionChannelImpl
-import com.github.hoshikurama.ticketmanager.paper.impls.proxy.ProxyJoinChannelImpl
 import com.github.hoshikurama.tmcoroutine.ChanneledCounter
 import com.github.hoshikurama.tmcoroutine.TMCoroutine
 import dev.jorel.commandapi.CommandAPI
@@ -20,9 +19,6 @@ class PaperPlugin : JavaPlugin() {
     private val tmPlugin = TMPluginImpl(
         paperPlugin = this,
         ticketCounter = ticketCounter,
-        proxyJoinChannel = ProxyJoinChannelImpl(this),
-        pbeVersionChannel = PBEVersionChannelImpl(this),
-        notificationSharingChannel = NotificationSharingChannelImpl(this),
     )
     private lateinit var metrics: Metrics
 
@@ -45,6 +41,9 @@ class PaperPlugin : JavaPlugin() {
                 }
             }
         )
+
+        // Internally TM:SE will handle using this or the Dummy object based on config
+        TicketManager.MessageSharingRegistry.register(ProxyMessageSharingExtension(this))
 
         TMCoroutine.Global.launch {
             tmPlugin.enableTicketManager()

@@ -1,6 +1,6 @@
 package com.github.hoshikurama.ticketmanager.common
 
-import java.net.URL
+import java.net.URI
 
 class UpdateChecker(val canCheck: Boolean, private val location: Location) {
     val latestVersionIfNotLatest = kotlin.run {
@@ -32,7 +32,8 @@ class UpdateChecker(val canCheck: Boolean, private val location: Location) {
         return try {
             val regex = "\"name\":\"[^,]*".toRegex()
 
-            URL(location.link)
+            URI(location.link)
+                .toURL()
                 .openStream()
                 .bufferedReader()
                 .readText()

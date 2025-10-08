@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.0.21"
+    kotlin("jvm") version "2.2.0"
 }
 
 repositories {
@@ -7,10 +7,10 @@ repositories {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.0")
 }
 
 subprojects {
     group = "com.github.hoshikurama"
-    version = "11.1.8"
+    version = "12.0.0"
 }

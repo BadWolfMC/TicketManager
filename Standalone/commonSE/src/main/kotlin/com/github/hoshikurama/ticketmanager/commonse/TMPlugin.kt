@@ -5,12 +5,12 @@ import com.github.hoshikurama.ticketmanager.api.impl.registry.*
 import com.github.hoshikurama.ticketmanager.api.registry.config.Config
 import com.github.hoshikurama.ticketmanager.api.registry.database.AsyncDatabase
 import com.github.hoshikurama.ticketmanager.api.registry.locale.Locale
+import com.github.hoshikurama.ticketmanager.api.registry.messagesharing.MessageSharing
 import com.github.hoshikurama.ticketmanager.api.registry.permission.Permission
-import com.github.hoshikurama.ticketmanager.api.registry.playerjoin.PlayerJoinRegistry.RunType
 import com.github.hoshikurama.ticketmanager.commonse.commands.CommandTasks
-import com.github.hoshikurama.ticketmanager.commonse.proxymailboxes.NotificationSharingChannel
-import com.github.hoshikurama.ticketmanager.commonse.proxymailboxes.PBEVersionChannel
-import com.github.hoshikurama.ticketmanager.commonse.proxymailboxes.ProxyJoinChannel
+import com.github.hoshikurama.ticketmanager.commonse.proxymailboxes.NotificationSharingMailbox
+import com.github.hoshikurama.ticketmanager.commonse.proxymailboxes.ProxyVersionChannel
+import com.github.hoshikurama.ticketmanager.commonse.proxymailboxes.TeleportJoinMailbox
 import com.github.hoshikurama.ticketmanager.commonse.registrydefaults.config.DefaultConfigExtension
 import com.github.hoshikurama.ticketmanager.commonse.registrydefaults.database.DefaultDatabaseExtension
 import com.github.hoshikurama.ticketmanager.commonse.registrydefaults.locale.DefaultLocaleExtension
@@ -21,28 +21,23 @@ import com.github.hoshikurama.ticketmanager.commonse.registrydefaults.repeatingt
 import com.github.hoshikurama.ticketmanager.commonse.registrydefaults.repeatingtasks.UnreadNotify
 import com.github.hoshikurama.tmcoroutine.ChanneledCounter
 import com.github.hoshikurama.tmcoroutine.TMCoroutine
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import java.nio.file.Path
-import java.util.UUID
-
+import java.util.*
 import com.github.hoshikurama.ticketmanager.api.impl.TicketManager as TicketManagerInternal
 
 abstract class TMPlugin(
     private val tmDirectory: Path,
     private val ticketCounter: ChanneledCounter,
     private val platformFunctionBuilder: PlatformFunctionBuilder,
-    private val notificationSharingChannel: NotificationSharingChannel,
-    private val pbeVersionChannel: PBEVersionChannel,
-    private val proxyJoinChannel: ProxyJoinChannel,
 ) {
     companion object {
         @Volatile lateinit var activeInstance: TMPlugin
     }
 
-    private val repeatingTasks = mutableListOf<Job>()
     @Volatile protected lateinit var baseTicketCommand: String
     @Volatile private lateinit var databaseClosing: AsyncDatabase
+    @Volatile private lateinit var messageSharing: MessageSharing
 
     protected abstract fun unregisterCommands(trueShutdown: Boolean)
     protected abstract fun registerCommands(
@@ -54,12 +49,7 @@ abstract class TMPlugin(
         preCommand: PreCommandExtensionHolder,
         commandTasks: CommandTasks,
     )
-    protected abstract fun unregisterProxyChannels(trueShutdown: Boolean)
-    protected abstract fun registerProxyChannels(
-        proxyJoinChannel: ProxyJoinChannel,
-        pbeVersionChannel: PBEVersionChannel,
-        notificationSharingChannel: NotificationSharingChannel,
-    )
+
     protected abstract fun unregisterPlayerJoinEvent(trueShutdown: Boolean)
     protected abstract fun registerPlayerJoinEvent(
         config: Config,
@@ -83,37 +73,56 @@ abstract class TMPlugin(
         val locale = TicketManager.LocaleRegistry.load(tmDirectory, config)
         val database = TicketManager.DatabaseRegistry.loadAndInitialize(tmDirectory, config, locale)
         val platform = platformFunctionBuilder.build(permission, config)
-        val commandTasks = CommandTasks(config, locale, database, platform, permission, ticketCounter, notificationSharingChannel, proxyJoinChannel)
 
-        // Register auxiliary extensions
-        if (config.checkForPluginUpdates) TicketManager.PlayerJoinRegistry.register(SEUpdateChecker::class, RunType.ASYNC)
-        if (config.allowUnreadTicketUpdates) TicketManager.PlayerJoinRegistry.register(UnreadUpdates::class, RunType.ASYNC)
-        if (config.proxyOptions != null) TicketManager.PlayerJoinRegistry.register(ProxyTeleport(proxyJoinChannel), RunType.ASYNC)
-        if (config.proxyOptions != null && config.proxyOptions!!.pbeAllowUpdateCheck) TicketManager.PlayerJoinRegistry.register(PBEUpdateChecker(pbeVersionChannel), RunType.ASYNC)
-        if (config.cooldownOptions != null) TicketManager.PreCommandRegistry.register(Cooldown(config.cooldownOptions!!.duration))
-        TicketManager.PlayerJoinRegistry.register(StaffCount::class, RunType.ASYNC)
+        // Load Message Sharing Data via dependency injection
+        messageSharing = TicketManager.MessageSharingRegistry.loadAndInitialize(config.proxyOptions == null)
+        val teleportJoinMailbox = TeleportJoinMailbox(messageSharing)
+        val notificationSharingMailbox = NotificationSharingMailbox(messageSharing)
+        val proxyVersionChannel = ProxyVersionChannel(messageSharing)
 
-        if (config.allowUnreadTicketUpdates) TicketManager.RepeatingTaskRegistry.register(UnreadNotify::class)
-        TicketManager.RepeatingTaskRegistry.register(RepeatingStaffCount::class)
+        // Load remaining core extensions via dependency injection
+        val commandTasks = CommandTasks(config, locale, database, platform, permission, ticketCounter, notificationSharingMailbox, teleportJoinMailbox)
 
+        // Load auxiliary extensions and add internal behaviours (fixes extra registrations on reload for internal ones)
+        val playerJoinExtensions: PlayerJoinExtensionHolder = run {
+            val proxyTeleport = { ProxyTeleport(teleportJoinMailbox) }
+            val proxyUpdateCheck = { ProxyUpdateChecker(proxyVersionChannel) }
 
-        // Load auxiliary extensions
-        val playerJoinExtensions = PlayerJoinExtensionHolder(
-            syncExtensions = TicketManager.PlayerJoinRegistry.getSyncExtensions(),
-            asyncExtensions = TicketManager.PlayerJoinRegistry.getAsyncExtensions()
-        )
-        val preCommandExtensions = PreCommandExtensionHolder(
-            deciders = TicketManager.PreCommandRegistry.getDeciders(),
-            syncAfters = TicketManager.PreCommandRegistry.getSyncAfters(),
-            asyncAfters = TicketManager.PreCommandRegistry.getAsyncAfters()
-        )
+            val extraAsyncPlayerJoinExtensions = listOf(
+                ::SEUpdateChecker.takeIf { config.checkForPluginUpdates },
+                ::UnreadUpdates.takeIf { config.allowUnreadTicketUpdates },
+                proxyTeleport.takeIf { config.proxyOptions != null },
+                proxyUpdateCheck.takeIf { config.proxyOptions?.pbeAllowUpdateCheck?.equals(true) ?: false },
+                ::StaffCount,
+            ).mapNotNull { it?.invoke() }
 
-        // Finish external plugin registration
-        if (config.proxyOptions != null) registerProxyChannels(
-            notificationSharingChannel = notificationSharingChannel,
-            pbeVersionChannel = pbeVersionChannel,
-            proxyJoinChannel = proxyJoinChannel,
-        )
+            PlayerJoinExtensionHolder(
+                syncExtensions = TicketManager.PlayerJoinRegistry.getSyncExtensions(),
+                asyncExtensions = extraAsyncPlayerJoinExtensions + TicketManager.PlayerJoinRegistry.getAsyncExtensions()
+            )
+        }
+
+        val extraPreCommandExtensions = run {
+            val extraPreCommandDeciders = listOf(
+                { Cooldown(config.cooldownOptions!!.duration) }.takeIf { config.cooldownOptions != null }
+            ).mapNotNull { it?.invoke() }
+
+            PreCommandExtensionHolder(
+                deciders = TicketManager.PreCommandRegistry.getDeciders() + extraPreCommandDeciders,
+                syncAfters = TicketManager.PreCommandRegistry.getSyncAfters(),
+                asyncAfters = TicketManager.PreCommandRegistry.getAsyncAfters()
+            )
+        }
+
+        val repeatingTaskExtensions = run {
+            val extraRepeatingTaskExtensions = listOf(
+                ::UnreadNotify.takeIf { config.allowUnreadTicketUpdates },
+                ::RepeatingStaffCount,
+            ).mapNotNull { it?.invoke() }
+
+            TicketManager.RepeatingTaskRegistry.getExtensions() + extraRepeatingTaskExtensions
+        }
+
         registerPlayerJoinEvent(
             config = config,
             locale = locale,
@@ -129,11 +138,11 @@ abstract class TMPlugin(
             permission = permission,
             commandTasks = commandTasks,
             platformFunctions = platform,
-            preCommand = preCommandExtensions,
+            preCommand = extraPreCommandExtensions,
         )
 
         // Launch repeating tasks
-        TicketManager.RepeatingTaskRegistry.getExtensions().map {
+        repeatingTaskExtensions.map {
             TMCoroutine.Supervised.launch {
                 while (true) {
                     delay(it.frequency)
@@ -148,7 +157,7 @@ abstract class TMPlugin(
             // Note: Each UUID takes 16 bytes. 500k ~10MB
             // Prevents issue where some users see spam in proxy mode
 
-            for (message in notificationSharingChannel.channelListener) {
+            for (message in notificationSharingMailbox.incomingMessages) {
                 if (message.messageUUID in encounteredUUIDs) continue
                 platform.massNotify(message.massNotifyPerm, message.generateMassNotify(locale))
                 encounteredUUIDs.add(message.messageUUID)
@@ -168,14 +177,25 @@ abstract class TMPlugin(
             ).forEach { it.clear() }
         }
 
-        repeatingTasks.forEach(Job::cancel)
-        repeatingTasks.clear()
-
-        TMCoroutine.Supervised.cancelTasks("Plugin is reloading or shutting down!")
-
         databaseClosing.closeDatabase()
-        unregisterProxyChannels(trueShutdown)
+        messageSharing.unload(trueShutdown)
+
+        // This should go last since above might rely on these for proper shutdown
+        TMCoroutine.Supervised.cancelTasks("Plugin is reloading or shutting down!")
     }
+}
+
+private suspend fun TMMessageSharingRegistry.loadAndInitialize(isHubOptionsNull: Boolean): MessageSharing {
+    return if (isHubOptionsNull)
+        object : MessageSharing {   // Dummy object with no behaviour
+            override fun relay2Hub(data: ByteArray, channelName: String) {}
+            override suspend fun unload(trueShutdown: Boolean) {}
+        }
+    else loadAndInitialize(
+        teleportJoinIntermediary = TeleportJoinMailbox.Intermediary,
+        notificationSharingIntermediary = NotificationSharingMailbox.Intermediary,
+        pbeVersionIntermediary = ProxyVersionChannel.Intermediary
+    )
 }
 
 // Note: This lets me use "TicketManager" the internal way
@@ -188,4 +208,5 @@ private object TicketManager {
     val PreCommandRegistry = TicketManagerInternal.PreCommandRegistry as TMPreCommandRegistry
     val RepeatingTaskRegistry = TicketManagerInternal.RepeatingTaskRegistry as TMRepeatingTaskRegistry
     val EventBus = TicketManagerInternal.EventBus
+    val MessageSharingRegistry: TMMessageSharingRegistry = TicketManagerInternal.MessageSharingRegistry as TMMessageSharingRegistry
 }
