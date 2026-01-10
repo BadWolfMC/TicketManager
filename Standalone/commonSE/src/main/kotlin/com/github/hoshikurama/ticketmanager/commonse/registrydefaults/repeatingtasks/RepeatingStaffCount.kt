@@ -10,6 +10,7 @@ import com.github.hoshikurama.ticketmanager.api.ticket.Assignment
 import com.github.hoshikurama.ticketmanager.commonse.misc.parseMiniMessage
 import com.github.hoshikurama.ticketmanager.commonse.misc.templated
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 // Open and Assigned Notify
 class RepeatingStaffCount : RepeatingTaskExtension {
@@ -35,7 +36,7 @@ class RepeatingStaffCount : RepeatingTaskExtension {
                             || it.assignedTo in groups
                 }
 
-                if (assignedCount != 0) {
+                if (openTickets.isNotEmpty()) {
                     locale.notifyOpenAssigned.parseMiniMessage(
                         "open" templated "$openCount",
                         "assigned" templated "$assignedCount"
