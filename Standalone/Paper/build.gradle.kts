@@ -22,7 +22,7 @@ repositories {
 
 dependencies {
     compileOnly("net.luckperms:api:5.5")
-    compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly("org.jetbrains.kotlin:kotlin-reflect:2.2.0")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
@@ -44,6 +44,7 @@ dependencies {
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions.freeCompilerArgs.add("-Xskip-prerelease-check") // TODO: This should be temporary
 }
 
 tasks {
