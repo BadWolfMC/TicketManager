@@ -19,3 +19,5 @@ The contributors below have taken the time to proved high-quality, official tran
 | UK English | en_UK | HoshiKurama |  |
 | German | de_DE | _CuzImRex | \[[Spigot Forums](https://www.spigotmc.org/members/_cuzimrex.230750/)\] |
 |  |  | Haxxsmart | \[[Steam](https://steamcommunity.com/id/haxxsmart/)] |
+| Italian | it_IT | SoyDisa | \[[Telegram](https://t.me/SoyDisa)\] |
+| Simplified Chinese | zh_CN | zzj2039 | \[[GitHub](https://github.com/zzj2039)\] |
