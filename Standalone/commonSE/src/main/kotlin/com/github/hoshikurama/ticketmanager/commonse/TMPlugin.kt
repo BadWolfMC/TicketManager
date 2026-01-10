@@ -142,7 +142,7 @@ abstract class TMPlugin(
         )
 
         // Launch repeating tasks
-        repeatingTaskExtensions.map {
+        repeatingTaskExtensions.forEach {
             TMCoroutine.Supervised.launch {
                 while (true) {
                     delay(it.frequency)
